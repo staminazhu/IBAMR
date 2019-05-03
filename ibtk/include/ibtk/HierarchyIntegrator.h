@@ -220,6 +220,22 @@ public:
      * GriddingAlgorithm::regidAllFinerLevels() to regrid the patch hierarchy.
      * Subclasses can control the method used to regrid the patch hierarchy by
      * overriding this public virtual member function.
+     *
+     * Before regridding, this method calls regridHierarchyBeginSpecialized()
+     * on the current integrator and all child integrators.
+     *
+     * After regridding and (optionally) checking the new grid volume, this
+     * method calls regridHierarchyEndSpecialized() on the current integrator
+     * and all child integrators. It then calls the following methods (and,
+     * therefore, the specialized methods on the current and all child
+     * integrators) in the following order:
+     *
+     * 1. initializeCompositeHierarchyData
+     * 2. synchronizeHierarchyData
+     *
+     * @warning This class assumes, but does not enforce, that this method is
+     * only called on the parent integrator. A future release of IBAMR will
+     * enforce this assumption.
      */
     virtual void regridHierarchy();
 
@@ -673,6 +689,20 @@ public:
 
 protected:
     /*!
+     * Perform any necessary work relevant to data owned by the current
+     * integrator prior to regridding (e.g., calculating divergences). An
+     * empty default implementation is provided.
+     */
+    virtual void regridHierarchyBeginSpecialized();
+
+    /*!
+     * Perform any necessary work relevant to data owned by the current
+     * integrator after regridding (e.g., calculating divergences). An empty
+     * default implementation is provided.
+     */
+    virtual void regridHierarchyEndSpecialized();
+
+    /*!
      * Virtual method to compute an implementation-specific minimum stable time
      * step size.
      *
@@ -1042,6 +1072,19 @@ protected:
      * Indicates whether the integrator should output logging messages.
      */
     bool d_enable_logging = false;
+
+    /*
+     * Indicates whether the integrator should, if
+     * <code>d_enable_logging</code> is <code>true</code>, also log the number
+     * of solver iterations required for convergence. This value is separate
+     * since the number of solver iterations is, in general, subject to small
+     * changes (usually plus or minus one) even when the same program is run.
+     *
+     * If <code>enable_logging_solver_iterations</code> is not provided in the
+     * input database then the value assigned to <code>d_enable_logging</code>
+     * is also assigned to <code>d_enable_logging_solver_iterations</code>.
+     */
+    bool d_enable_logging_solver_iterations = false;
 
     /*
      * The type of extrapolation to use at physical boundaries when prolonging

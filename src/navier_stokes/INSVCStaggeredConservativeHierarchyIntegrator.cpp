@@ -756,7 +756,7 @@ INSVCStaggeredConservativeHierarchyIntegrator::integrateHierarchy(const double c
         d_hier_sc_data_ops->resetLevels(coarsest_ln, finest_ln);
     }
 
-    if (d_enable_logging)
+    if (d_enable_logging && d_enable_logging_solver_iterations)
         plog << d_object_name
              << "::integrateHierarchy(): stokes solve number of iterations = " << d_stokes_solver->getNumIterations()
              << "\n";
@@ -843,13 +843,6 @@ INSVCStaggeredConservativeHierarchyIntegrator::postprocessIntegrateHierarchy(con
 
     return;
 } // postprocessIntegrateHierarchy
-
-void
-INSVCStaggeredConservativeHierarchyIntegrator::regridHierarchy()
-{
-    INSVCStaggeredHierarchyIntegrator::regridHierarchy();
-    return;
-} // regridHierarchy
 
 void
 INSVCStaggeredConservativeHierarchyIntegrator::removeNullSpace(const Pointer<SAMRAIVectorReal<NDIM, double> >& sol_vec)
@@ -1088,7 +1081,7 @@ INSVCStaggeredConservativeHierarchyIntegrator::regridProjection()
 
     // Solve the projection pressure-Poisson problem.
     regrid_projection_solver->solveSystem(sol_vec, rhs_vec);
-    if (d_enable_logging)
+    if (d_enable_logging && d_enable_logging_solver_iterations)
         plog << d_object_name << "::regridProjection(): regrid projection solve number of iterations = "
              << regrid_projection_solver->getNumIterations() << "\n";
     if (d_enable_logging)

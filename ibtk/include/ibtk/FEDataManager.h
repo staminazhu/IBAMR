@@ -58,6 +58,7 @@
 #include "libmesh/elem.h"
 #include "libmesh/enum_order.h"
 #include "libmesh/enum_quadrature_type.h"
+#include "libmesh/petsc_vector.h"
 #include "libmesh/system.h"
 #include "tbox/Pointer.h"
 #include "tbox/Serializable.h"
@@ -263,13 +264,13 @@ public:
      * \brief The libMesh boundary IDs to use for specifying essential boundary
      * conditions.
      */
-    static const short int ZERO_DISPLACEMENT_X_BDRY_ID;
-    static const short int ZERO_DISPLACEMENT_Y_BDRY_ID;
-    static const short int ZERO_DISPLACEMENT_Z_BDRY_ID;
-    static const short int ZERO_DISPLACEMENT_XY_BDRY_ID;
-    static const short int ZERO_DISPLACEMENT_XZ_BDRY_ID;
-    static const short int ZERO_DISPLACEMENT_YZ_BDRY_ID;
-    static const short int ZERO_DISPLACEMENT_XYZ_BDRY_ID;
+    static const libMesh::boundary_id_type ZERO_DISPLACEMENT_X_BDRY_ID;
+    static const libMesh::boundary_id_type ZERO_DISPLACEMENT_Y_BDRY_ID;
+    static const libMesh::boundary_id_type ZERO_DISPLACEMENT_Z_BDRY_ID;
+    static const libMesh::boundary_id_type ZERO_DISPLACEMENT_XY_BDRY_ID;
+    static const libMesh::boundary_id_type ZERO_DISPLACEMENT_XZ_BDRY_ID;
+    static const libMesh::boundary_id_type ZERO_DISPLACEMENT_YZ_BDRY_ID;
+    static const libMesh::boundary_id_type ZERO_DISPLACEMENT_XYZ_BDRY_ID;
 
     /*!
      * Return a pointer to the instance of the Lagrangian data manager
@@ -440,10 +441,24 @@ public:
 
     /*!
      * \return A pointer to the ghosted solution vector associated with the
-     * specified system.
+     * specified system. The vector contains positions for values in the
+     * relevant IB ghost region which are populated if @p localize_data is
+     * <code>true</code>.
+     *
+     * @note The vector returned by pointer is owned by this class (i.e., no
+     * copying is done).
+     *
+     * @deprecated Use buildIBGhostedVector instead which clones a vector with
+     * the same ghost region.
      */
     libMesh::NumericVector<double>* buildGhostedSolutionVector(const std::string& system_name,
                                                                bool localize_data = true);
+
+    /*!
+     * \return A pointer to a vector, with ghost entries corresponding to
+     * relevant IB data, associated with the specified system.
+     */
+    std::unique_ptr<libMesh::PetscVector<double> > buildIBGhostedVector(const std::string& system_name) const;
 
     /*!
      * \return A pointer to the unghosted coordinates (nodal position) vector.
@@ -452,6 +467,8 @@ public:
 
     /*!
      * \return A pointer to the ghosted coordinates (nodal position) vector.
+     *
+     * @deprecated Use buildIBGhostedVector() instead.
      */
     libMesh::NumericVector<double>* buildGhostedCoordsVector(bool localize_data = true);
 
@@ -948,6 +965,13 @@ private:
      * Ghost vectors for the various equation systems.
      */
     std::map<std::string, std::unique_ptr<libMesh::NumericVector<double>>> d_system_ghost_vec;
+
+    /*
+     * Exemplar relevant IB-ghosted vectors for the various equation
+     * systems. These vectors are cloned for fast initialization in
+     * buildIBGhostedVector.
+     */
+    std::map<std::string, std::unique_ptr<libMesh::PetscVector<double> > > d_system_ib_ghost_vec;
 
     /*
      * Linear solvers and related data for performing interpolation in the IB-FE

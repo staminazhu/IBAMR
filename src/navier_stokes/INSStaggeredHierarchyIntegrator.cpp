@@ -1276,7 +1276,7 @@ INSStaggeredHierarchyIntegrator::integrateHierarchy(const double current_time,
 
     // Solve for u(n+1), p(n+1/2).
     d_stokes_solver->solveSystem(*d_sol_vec, *d_rhs_vec);
-    if (d_enable_logging)
+    if (d_enable_logging && d_enable_logging_solver_iterations)
         plog << d_object_name
              << "::integrateHierarchy(): stokes solve number of iterations = " << d_stokes_solver->getNumIterations()
              << "\n";
@@ -1418,83 +1418,6 @@ INSStaggeredHierarchyIntegrator::postprocessIntegrateHierarchy(const double curr
         current_time, new_time, skip_synchronize_new_state_data, num_cycles);
     return;
 } // postprocessIntegrateHierarchy
-
-void
-INSStaggeredHierarchyIntegrator::regridHierarchy()
-{
-    const int coarsest_ln = 0;
-
-    // Determine the divergence of the velocity field before regridding.
-    d_hier_math_ops->div(d_Div_U_idx,
-                         d_Div_U_var,
-                         1.0,
-                         d_U_current_idx,
-                         d_U_var,
-                         d_no_fill_op,
-                         d_integrator_time,
-                         /*synch_cf_bdry*/ false,
-                         -1.0,
-                         d_Q_current_idx,
-                         d_Q_var);
-    const int wgt_cc_idx = d_hier_math_ops->getCellWeightPatchDescriptorIndex();
-    const double Div_U_norm_1_pre = d_hier_cc_data_ops->L1Norm(d_Div_U_idx, wgt_cc_idx);
-    const double Div_U_norm_2_pre = d_hier_cc_data_ops->L2Norm(d_Div_U_idx, wgt_cc_idx);
-    const double Div_U_norm_oo_pre = d_hier_cc_data_ops->maxNorm(d_Div_U_idx, wgt_cc_idx);
-
-    // Regrid the hierarchy.
-    switch (d_regrid_mode)
-    {
-    case STANDARD:
-        d_gridding_alg->regridAllFinerLevels(d_hierarchy, coarsest_ln, d_integrator_time, d_tag_buffer);
-        break;
-    case AGGRESSIVE:
-        for (int k = 0; k < d_gridding_alg->getMaxLevels(); ++k)
-        {
-            d_gridding_alg->regridAllFinerLevels(d_hierarchy, coarsest_ln, d_integrator_time, d_tag_buffer);
-        }
-        break;
-    default:
-        TBOX_ERROR(d_object_name << "::regridHierarchy():\n"
-                                 << "  unrecognized regrid mode: "
-                                 << IBTK::enum_to_string<RegridMode>(d_regrid_mode)
-                                 << "."
-                                 << std::endl);
-    }
-
-    // Determine the divergence of the velocity field after regridding.
-    d_hier_math_ops->div(d_Div_U_idx,
-                         d_Div_U_var,
-                         1.0,
-                         d_U_current_idx,
-                         d_U_var,
-                         d_no_fill_op,
-                         d_integrator_time,
-                         /*synch_cf_bdry*/ true,
-                         -1.0,
-                         d_Q_current_idx,
-                         d_Q_var);
-    const double Div_U_norm_1_post = d_hier_cc_data_ops->L1Norm(d_Div_U_idx, wgt_cc_idx);
-    const double Div_U_norm_2_post = d_hier_cc_data_ops->L2Norm(d_Div_U_idx, wgt_cc_idx);
-    const double Div_U_norm_oo_post = d_hier_cc_data_ops->maxNorm(d_Div_U_idx, wgt_cc_idx);
-
-    // Project the interpolated velocity if needed.
-    if (Div_U_norm_1_post > d_regrid_max_div_growth_factor * Div_U_norm_1_pre ||
-        Div_U_norm_2_post > d_regrid_max_div_growth_factor * Div_U_norm_2_pre ||
-        Div_U_norm_oo_post > d_regrid_max_div_growth_factor * Div_U_norm_oo_pre)
-    {
-        pout << d_object_name << "::regridHierarchy():\n"
-             << "  WARNING: projecting the interpolated velocity field\n";
-        regridProjection();
-    }
-
-    // Reinitialize composite grid data.
-    const bool initial_time = false;
-    initializeCompositeHierarchyData(d_integrator_time, initial_time);
-
-    // Synchronize the state data on the patch hierarchy.
-    synchronizeHierarchyData(CURRENT_DATA);
-    return;
-} // regridHierarchy
 
 void
 INSStaggeredHierarchyIntegrator::setupSolverVectors(const Pointer<SAMRAIVectorReal<NDIM, double> >& sol_vec,
@@ -1711,6 +1634,61 @@ INSStaggeredHierarchyIntegrator::removeNullSpace(const Pointer<SAMRAIVectorReal<
 }
 
 /////////////////////////////// PROTECTED ////////////////////////////////////
+
+void
+INSStaggeredHierarchyIntegrator::regridHierarchyBeginSpecialized()
+{
+    // Determine the divergence of the velocity field before regridding.
+    d_hier_math_ops->div(d_Div_U_idx,
+                         d_Div_U_var,
+                         1.0,
+                         d_U_current_idx,
+                         d_U_var,
+                         d_no_fill_op,
+                         d_integrator_time,
+                         /*synch_cf_bdry*/ false,
+                         -1.0,
+                         d_Q_current_idx,
+                         d_Q_var);
+    const int wgt_cc_idx = d_hier_math_ops->getCellWeightPatchDescriptorIndex();
+    d_div_U_norm_1_pre = d_hier_cc_data_ops->L1Norm(d_Div_U_idx, wgt_cc_idx);
+    d_div_U_norm_2_pre = d_hier_cc_data_ops->L2Norm(d_Div_U_idx, wgt_cc_idx);
+    d_div_U_norm_oo_pre = d_hier_cc_data_ops->maxNorm(d_Div_U_idx, wgt_cc_idx);
+
+    return;
+} // regridHierarchyBeginSpecialized
+
+void
+INSStaggeredHierarchyIntegrator::regridHierarchyEndSpecialized()
+{
+    const int wgt_cc_idx = d_hier_math_ops->getCellWeightPatchDescriptorIndex();
+    // Determine the divergence of the velocity field after regridding.
+    d_hier_math_ops->div(d_Div_U_idx,
+                         d_Div_U_var,
+                         1.0,
+                         d_U_current_idx,
+                         d_U_var,
+                         d_no_fill_op,
+                         d_integrator_time,
+                         /*synch_cf_bdry*/ true,
+                         -1.0,
+                         d_Q_current_idx,
+                         d_Q_var);
+    const double Div_U_norm_1_post = d_hier_cc_data_ops->L1Norm(d_Div_U_idx, wgt_cc_idx);
+    const double Div_U_norm_2_post = d_hier_cc_data_ops->L2Norm(d_Div_U_idx, wgt_cc_idx);
+    const double Div_U_norm_oo_post = d_hier_cc_data_ops->maxNorm(d_Div_U_idx, wgt_cc_idx);
+
+    // Project the interpolated velocity if needed.
+    if (Div_U_norm_1_post > d_regrid_max_div_growth_factor * d_div_U_norm_1_pre ||
+        Div_U_norm_2_post > d_regrid_max_div_growth_factor * d_div_U_norm_2_pre ||
+        Div_U_norm_oo_post > d_regrid_max_div_growth_factor * d_div_U_norm_oo_pre)
+    {
+        pout << d_object_name << "::regridHierarchy():\n"
+             << "  WARNING: projecting the interpolated velocity field\n";
+        regridProjection();
+    }
+    return;
+} // regridHierarchyEndSpecialized
 
 void
 INSStaggeredHierarchyIntegrator::initializeLevelDataSpecialized(const Pointer<BasePatchHierarchy<NDIM> > base_hierarchy,
@@ -2189,7 +2167,7 @@ INSStaggeredHierarchyIntegrator::regridProjection()
 
     // Solve the projection pressure-Poisson problem.
     regrid_projection_solver->solveSystem(sol_vec, rhs_vec);
-    if (d_enable_logging)
+    if (d_enable_logging && d_enable_logging_solver_iterations)
         plog << d_object_name << "::regridProjection(): regrid projection solve number of iterations = "
              << regrid_projection_solver->getNumIterations() << "\n";
     if (d_enable_logging)

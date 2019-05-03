@@ -418,8 +418,21 @@ HierarchyIntegrator::regridHierarchy()
 {
     const int coarsest_ln = 0;
 
+    if (d_parent_integrator != nullptr)
+    {
+        TBOX_WARNING(d_object_name << "::regridHierarchy():\n"
+                                   << "  Calling regridHierarchy() on integrators with parent integrators is\n"
+                                   << "  deprecated and will not be permitted in a future version of IBAMR.");
+    }
+
     bool check_volume_change = !d_parent_integrator && d_hierarchy_is_initialized;
     const double old_volume = check_volume_change ? d_hier_math_ops->getVolumeOfPhysicalDomain() : 0.0;
+
+    regridHierarchyBeginSpecialized();
+    for (const auto& child_integrator : d_child_integrators)
+    {
+        child_integrator->regridHierarchyBeginSpecialized();
+    }
 
     // Regrid the hierarchy.
     switch (d_regrid_mode)
@@ -449,6 +462,12 @@ HierarchyIntegrator::regridHierarchy()
                           << "    old volume = " << old_volume << "\n"
                           << "    new volume = " << new_volume << "\n"
                           << "  this may indicate overlapping patches in the AMR grid hierarchy.");
+    }
+
+    regridHierarchyEndSpecialized();
+    for (const auto& child_integrator : d_child_integrators)
+    {
+        child_integrator->regridHierarchyEndSpecialized();
     }
 
     // Reinitialize composite grid data.
@@ -1158,6 +1177,7 @@ HierarchyIntegrator::putToDatabase(Pointer<Database> db)
     db->putInteger("d_regrid_interval", d_regrid_interval);
     db->putString("d_regrid_mode", enum_to_string<RegridMode>(d_regrid_mode));
     db->putBool("d_enable_logging", d_enable_logging);
+    db->putBool("d_enable_logging_solver_iterations", d_enable_logging_solver_iterations);
     db->putIntegerArray("d_tag_buffer", d_tag_buffer);
     db->putString("d_bdry_extrap_type", d_bdry_extrap_type);
     putToDatabaseSpecialized(db);
@@ -1165,6 +1185,16 @@ HierarchyIntegrator::putToDatabase(Pointer<Database> db)
 } // putToDatabase
 
 /////////////////////////////// PROTECTED ////////////////////////////////////
+
+void
+HierarchyIntegrator::regridHierarchyBeginSpecialized()
+{
+} // regridHierarchyBeginSpecialized
+
+void
+HierarchyIntegrator::regridHierarchyEndSpecialized()
+{
+} // regridHierarchyEndSpecialized
 
 double
 HierarchyIntegrator::getMinimumTimeStepSizeSpecialized()
@@ -1593,7 +1623,18 @@ HierarchyIntegrator::getFromInput(Pointer<Database> db, bool is_from_restart)
     if (db->keyExists("num_cycles")) d_num_cycles = db->getInteger("num_cycles");
     if (db->keyExists("regrid_interval")) d_regrid_interval = db->getInteger("regrid_interval");
     if (db->keyExists("regrid_mode")) d_regrid_mode = string_to_enum<RegridMode>(db->getString("regrid_mode"));
-    if (db->keyExists("enable_logging")) d_enable_logging = db->getBool("enable_logging");
+    if (db->keyExists("enable_logging"))
+    {
+        d_enable_logging = db->getBool("enable_logging");
+        if (db->keyExists("enable_logging_solver_iterations"))
+        {
+            d_enable_logging_solver_iterations = db->getBool("enable_logging_solver_iterations");
+        }
+        else
+        {
+            d_enable_logging_solver_iterations = d_enable_logging;
+        }
+    }
     if (db->keyExists("bdry_extrap_type")) d_bdry_extrap_type = db->getString("bdry_extrap_type");
     if (db->keyExists("tag_buffer")) d_tag_buffer = db->getIntegerArray("tag_buffer");
     return;
@@ -1641,6 +1682,7 @@ HierarchyIntegrator::getFromRestart()
     d_regrid_interval = db->getInteger("d_regrid_interval");
     d_regrid_mode = string_to_enum<RegridMode>(db->getString("d_regrid_mode"));
     d_enable_logging = db->getBool("d_enable_logging");
+    d_enable_logging_solver_iterations = db->getBool("d_enable_logging_solver_iterations");
     d_bdry_extrap_type = db->getString("d_bdry_extrap_type");
     d_tag_buffer = db->getIntegerArray("d_tag_buffer");
     return;
